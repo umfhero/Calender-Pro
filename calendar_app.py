@@ -21,7 +21,7 @@ class CalendarApp(ctk.CTk):
         super().__init__()
 
         # Window configuration
-        self.title("Notes Calendar")
+        self.title("Calendar Pro")
         self.geometry("1000x800")
         self.minsize(800, 700)
 
@@ -461,7 +461,7 @@ class CalendarApp(ctk.CTk):
 
         welcome_label = ctk.CTkLabel(
             welcome_header_frame,
-            text="Welcome to Notes Calendar!",
+            text="Welcome to Calendar Pro!",
             font=ctk.CTkFont(size=28, weight="bold")
         )
         welcome_label.pack(side="left")
@@ -494,7 +494,7 @@ class CalendarApp(ctk.CTk):
 
         recent_title = ctk.CTkLabel(
             recent_notes_frame,
-            text="📝 Recent Notes",
+            text="Recent Notes",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color=("#0B2027", "#0B2027")
         )
