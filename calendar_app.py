@@ -2,9 +2,10 @@ import customtkinter as ctk
 import calendar
 import json
 import os
+import tkinter as tk
 from datetime import datetime
 from typing import Dict, List, Any
-from PIL import Image
+from PIL import Image, ImageTk
 
 # Configure the appearance mode and default color theme
 ctk.set_appearance_mode("light")
@@ -25,11 +26,8 @@ class CalendarApp(ctk.CTk):
         self.geometry("1000x800")
         self.minsize(800, 700)
 
-        # Set app icon
-        try:
-            self.iconbitmap("calendar.ico")
-        except:
-            pass  # Continue without icon if file not found
+        # Set app icon with multiple methods for better compatibility
+        self.set_window_icon()
 
         # Configure grid weights
         self.grid_columnconfigure(1, weight=1)
@@ -37,6 +35,21 @@ class CalendarApp(ctk.CTk):
 
         # Load existing notes
         self.note_data = self.load_notes()
+        self.timetable_data = self.load_timetable()  # Load timetable data
+        self.modules_data = self.load_modules()  # Load modules data
+
+        # Add preset module if no modules exist
+        if not self.modules_data:
+            self.modules_data = {
+                "CST3510 Memory Analysis": {
+                    "color": "#45B7D1",
+                    "teacher": "Mr David Neilson",
+                    "rooms": ["Room Unknown", "Lab A", "Lab B", "Lecture Hall 1", "Lecture Hall 2"],
+                    "created": datetime.now().isoformat()
+                }
+            }
+            self.save_modules()
+
         self.current_month = None
         self.delete_mode = False
         self.selected_days = set()  # Track selected days for deletion
@@ -47,6 +60,62 @@ class CalendarApp(ctk.CTk):
 
         # Initialize with welcome message and highlight current month
         self.show_months_list()
+
+        # Force icon setting after window is fully initialized
+        self.after(100, self.set_window_icon)
+
+    def set_window_icon(self):
+        """Sets the window icon using multiple fallback methods."""
+        icon_set = False
+
+        # Method 1: Try iconbitmap with .ico file
+        try:
+            self.iconbitmap("calendar.ico")
+            icon_set = True
+        except:
+            pass
+
+        # Method 1b: Try wm_iconbitmap as alternative
+        try:
+            self.wm_iconbitmap("calendar.ico")
+            icon_set = True
+        except:
+            pass
+
+        # Method 2: Try iconphoto with PNG converted to PhotoImage
+        try:
+            icon_img = tk.PhotoImage(file="calendar.png")
+            self.iconphoto(True, icon_img)
+            icon_set = True
+        except:
+            pass
+
+        # Method 3: Try using PIL to load and convert the icon
+        try:
+            from PIL import Image, ImageTk
+            # Load calendar.png and convert to PhotoImage
+            pil_img = Image.open("calendar.png")
+            # Resize to standard icon size if needed
+            pil_img = pil_img.resize((32, 32), Image.Resampling.LANCZOS)
+            tk_img = ImageTk.PhotoImage(pil_img)
+            self.iconphoto(True, tk_img)
+            # Keep reference to prevent garbage collection
+            self._icon_image = tk_img
+            icon_set = True
+        except:
+            pass
+
+        # Method 4: Try with .ico file converted through PIL
+        try:
+            from PIL import Image, ImageTk
+            pil_img = Image.open("calendar.ico")
+            pil_img = pil_img.resize((32, 32), Image.Resampling.LANCZOS)
+            tk_img = ImageTk.PhotoImage(pil_img)
+            self.iconphoto(True, tk_img)
+            self._icon_image = tk_img
+            icon_set = True
+        except:
+            pass
 
     def create_left_panel(self):
         """Creates the left panel with month list and note counters."""
@@ -60,7 +129,8 @@ class CalendarApp(ctk.CTk):
         # Configure left frame grid
         self.left_frame.grid_columnconfigure(0, weight=1)
         self.left_frame.grid_columnconfigure(1, weight=0)  # For notifications
-        self.left_frame.grid_rowconfigure(13, weight=1)
+        # Adjust for timetable button (row 13 + 1)
+        self.left_frame.grid_rowconfigure(14, weight=1)
 
         # Home button at the top
         home_btn_frame = ctk.CTkFrame(self.left_frame, fg_color="transparent")
@@ -94,6 +164,39 @@ class CalendarApp(ctk.CTk):
         )
         home_btn.pack(fill="x")
 
+        # Time Table button
+        timetable_btn_frame = ctk.CTkFrame(
+            self.left_frame, fg_color="transparent")
+        timetable_btn_frame.grid(
+            row=1, column=0, padx=15, pady=(5, 5), sticky="ew")
+
+        # Load time table icon (using edit icon as placeholder)
+        timetable_icon = None
+        try:
+            timetable_icon = ctk.CTkImage(
+                light_image=Image.open("edit.png"),
+                dark_image=Image.open("edit.png"),
+                size=(37, 37)
+            )
+        except:
+            pass
+
+        timetable_btn = ctk.CTkButton(
+            timetable_btn_frame,
+            text="  Time Table" if not timetable_icon else "",
+            image=timetable_icon,
+            compound="left",
+            command=self.show_timetable,
+            fg_color=("#482728", "#482728"),
+            hover_color=("#5A3233", "#5A3233"),
+            text_color=("white", "white"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            corner_radius=10,
+            height=40,
+            width=220
+        )
+        timetable_btn.pack(fill="x")
+
         # Month buttons container
         self.month_buttons = {}
         self.month_note_labels = {}
@@ -112,10 +215,10 @@ class CalendarApp(ctk.CTk):
                 [day for day, notes in month_data.items() if notes])
             is_current_month = (i == current_month)
 
-            # Create button container with rounded corners
+            # Create button container with rounded corners (adjust row to i+1 for timetable button)
             btn_container = ctk.CTkFrame(
                 self.left_frame, corner_radius=12, fg_color="transparent")
-            btn_container.grid(row=i, column=0, padx=15, pady=2, sticky="ew")
+            btn_container.grid(row=i+1, column=0, padx=15, pady=2, sticky="ew")
 
             # Month button with current month highlighting
             notification_text = f"{i} {month_name}"
@@ -146,7 +249,7 @@ class CalendarApp(ctk.CTk):
                 notification_frame = ctk.CTkFrame(
                     self.left_frame, fg_color="transparent")
                 notification_frame.grid(
-                    row=i, column=1, padx=(5, 15), pady=2, sticky="ne")
+                    row=i+1, column=1, padx=(5, 15), pady=2, sticky="ne")
 
                 # Try using Canvas to overlay text on image without background
                 import tkinter as tk
@@ -162,7 +265,7 @@ class CalendarApp(ctk.CTk):
                 # Load and draw the icon image on canvas
                 try:
                     from PIL import ImageTk
-                    icon_pil = Image.open("icon.png").resize((45, 45))
+                    icon_pil = Image.open("bell.png").resize((45, 45))
                     icon_photo = ImageTk.PhotoImage(icon_pil)
                     canvas.create_image(21, 21, image=icon_photo)
                     # Keep a reference to prevent garbage collection
@@ -359,8 +462,8 @@ class CalendarApp(ctk.CTk):
                 text_color = ("white", "white")
             elif has_notes:
                 # Days with notes get the new color highlight
-                fg_color = ("#482728", "#482728")
-                hover_color = ("#5A3233", "#5A3233")
+                fg_color = ("#6DB176", "#6DB176")
+                hover_color = ("#83CC8D", "#83CC8D")
                 text_color = ("white", "white")
             else:
                 # Regular days
@@ -901,6 +1004,813 @@ class CalendarApp(ctk.CTk):
         # Show success message
         self.show_success_message()
 
+    def load_timetable(self):
+        """Loads timetable data from the timetable.json file."""
+        if os.path.exists('timetable.json'):
+            try:
+                with open('timetable.json', 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                return {}
+        return {}
+
+    def save_timetable(self):
+        """Saves timetable data to timetable.json file."""
+        with open('timetable.json', 'w') as f:
+            json.dump(self.timetable_data, f, indent=4)
+
+    def load_modules(self):
+        """Loads modules data from the modules.json file."""
+        if os.path.exists('modules.json'):
+            try:
+                with open('modules.json', 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                return {}
+        return {}
+
+    def save_modules(self):
+        """Saves modules data to modules.json file."""
+        with open('modules.json', 'w') as f:
+            json.dump(self.modules_data, f, indent=4)
+
+    def show_timetable(self):
+        """Shows the weekly timetable view."""
+        self.clear_right_frame()
+
+        # Configure right frame grid
+        self.right_frame.grid_columnconfigure(0, weight=1)
+        self.right_frame.grid_rowconfigure(1, weight=1)
+
+        # Header
+        header_frame = ctk.CTkFrame(self.right_frame, fg_color="transparent")
+        header_frame.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
+        header_frame.grid_columnconfigure(1, weight=1)
+
+        back_btn = ctk.CTkButton(
+            header_frame,
+            text="← Back to Home",
+            command=self.show_months_list,
+            fg_color="transparent",
+            text_color=("#0B2027", "#0B2027"),
+            font=ctk.CTkFont(size=12),
+            corner_radius=8,
+            height=30
+        )
+        back_btn.grid(row=0, column=0, padx=(0, 10))
+
+        title_label = ctk.CTkLabel(
+            header_frame,
+            text="📅 Weekly Time Table",
+            font=ctk.CTkFont(size=28, weight="bold")
+        )
+        title_label.grid(row=0, column=1, sticky="w")
+
+        # Manage Modules button
+        modules_btn = ctk.CTkButton(
+            header_frame,
+            text="📚 Manage Modules",
+            command=self.show_modules_manager,
+            fg_color=("#482728", "#482728"),
+            hover_color=("#5A3233", "#5A3233"),
+            font=ctk.CTkFont(size=12),
+            corner_radius=8,
+            height=30
+        )
+        modules_btn.grid(row=0, column=2, padx=(10, 0))
+
+        # Main timetable container
+        timetable_container = ctk.CTkFrame(self.right_frame, corner_radius=15)
+        timetable_container.grid(
+            row=1, column=0, padx=20, pady=(0, 20), sticky="nsew")
+        timetable_container.grid_columnconfigure(0, weight=1)
+        timetable_container.grid_rowconfigure(0, weight=1)
+
+        # Create scrollable frame for timetable with vertical scrolling
+        timetable_scroll = ctk.CTkScrollableFrame(
+            timetable_container, corner_radius=10)
+        timetable_scroll.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+
+        # Configure grid weights for responsive scaling while maintaining minimum widths
+        for i in range(8):  # 7 days + 1 time column
+            timetable_scroll.grid_columnconfigure(
+                i, weight=1, minsize=120)  # Make all columns same minimum width
+
+        # Configure row weights for responsive height scaling
+        for i in range(17):  # Header + 16 time slots (6 AM to 10 PM)
+            timetable_scroll.grid_rowconfigure(i, weight=1, minsize=35)
+
+        # Time slots (from 6 AM to 10 PM in 12-hour format - hourly intervals)
+        time_slots = []
+        for hour in range(6, 22):  # 6 AM to 10 PM
+            if hour == 12:
+                time_slots.append("12:00 PM")
+            elif hour < 12:
+                time_slots.append(f"{hour}:00 AM")
+            else:
+                display_hour = hour - 12
+                time_slots.append(f"{display_hour}:00 PM")
+
+        days = ["Monday", "Tuesday", "Wednesday",
+                "Thursday", "Friday", "Saturday", "Sunday"]
+
+        # Create grid header
+        # Empty top-left cell with minimum width for time column
+        ctk.CTkLabel(
+            timetable_scroll,
+            text="",
+            height=35
+        ).grid(row=0, column=0, padx=1, pady=1, sticky="ew")
+
+        # Day headers with responsive width
+        for col, day in enumerate(days, 1):
+            day_label = ctk.CTkLabel(
+                timetable_scroll,
+                text=day,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                fg_color=("#0B2027", "#0B2027"),
+                text_color=("white", "white"),
+                corner_radius=6,
+                height=35
+            )
+            day_label.grid(row=0, column=col, padx=1, pady=1, sticky="ew")
+
+        # Time slot rows
+        for row, time_slot in enumerate(time_slots, 1):
+            # Time label with bigger font and responsive width
+            time_label = ctk.CTkLabel(
+                timetable_scroll,
+                text=time_slot,
+                # Increased from 9 to 12
+                font=ctk.CTkFont(size=12, weight="bold"),
+                fg_color=("gray85", "gray15"),
+                corner_radius=4,
+                height=35  # Increased height to match other cells
+            )
+            time_label.grid(row=row, column=0, padx=1, pady=1, sticky="ew")
+
+            # Day cells with responsive width and smaller font
+            for col, day in enumerate(days, 1):
+                cell_key = f"{day}_{time_slot}"
+                cell_data = self.timetable_data.get(cell_key, {})
+
+                cell_text = ""
+                cell_color = ("gray95", "gray10")
+                text_color = ("gray40", "gray60")
+
+                if cell_data:
+                    if cell_data.get('type') == 'lesson':
+                        module_name = cell_data.get('module', '')
+                        room = cell_data.get('room', '')
+                        cell_text = f"{module_name}\n{room}" if room else module_name
+
+                        # Use module color if available
+                        if module_name and module_name in self.modules_data:
+                            module_color = self.modules_data[module_name].get(
+                                'color', '#6DB176')
+                            cell_color = (module_color, module_color)
+                        else:
+                            cell_color = ("#6DB176", "#6DB176")
+                        text_color = ("white", "white")
+                    elif cell_data.get('type') == 'task':
+                        cell_text = f"📋 {cell_data.get('task', '')}"
+                        cell_color = ("#4A90E2", "#4A90E2")
+                        text_color = ("white", "white")
+                    elif cell_data.get('type') == 'blocked':
+                        cell_text = "🚫 Blocked"
+                        cell_color = ("#FF6B6B", "#FF6B6B")
+                        text_color = ("white", "white")
+
+                cell_btn = ctk.CTkButton(
+                    timetable_scroll,
+                    text=cell_text,
+                    command=lambda d=day, t=time_slot: self.edit_timetable_cell(
+                        d, t),
+                    fg_color=cell_color,
+                    hover_color=cell_color,
+                    text_color=text_color,
+                    font=ctk.CTkFont(size=8),
+                    corner_radius=4,
+                    height=35  # Increased to match time labels
+                )
+                cell_btn.grid(row=row, column=col, padx=1, pady=1, sticky="ew")
+
+        # Legend
+        legend_frame = ctk.CTkFrame(self.right_frame, fg_color="transparent")
+        legend_frame.grid(row=2, column=0, padx=20, pady=(0, 10))
+
+        legend_title = ctk.CTkLabel(
+            legend_frame,
+            text="Legend:",
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        legend_title.pack(side="left", padx=(0, 10))
+
+        # Lesson legend
+        lesson_legend = ctk.CTkLabel(
+            legend_frame,
+            text="📚 Lessons",
+            fg_color=("#6DB176", "#6DB176"),
+            text_color=("white", "white"),
+            corner_radius=4,
+            width=70,
+            height=22,
+            font=ctk.CTkFont(size=10)
+        )
+        lesson_legend.pack(side="left", padx=3)
+
+        # Task legend
+        task_legend = ctk.CTkLabel(
+            legend_frame,
+            text="📋 Tasks",
+            fg_color=("#4A90E2", "#4A90E2"),
+            text_color=("white", "white"),
+            corner_radius=4,
+            width=70,
+            height=22,
+            font=ctk.CTkFont(size=10)
+        )
+        task_legend.pack(side="left", padx=3)
+
+        # Blocked legend
+        blocked_legend = ctk.CTkLabel(
+            legend_frame,
+            text="🚫 Blocked",
+            fg_color=("#FF6B6B", "#FF6B6B"),
+            text_color=("white", "white"),
+            corner_radius=4,
+            width=70,
+            height=22,
+            font=ctk.CTkFont(size=10)
+        )
+        blocked_legend.pack(side="left", padx=3)
+
+    def edit_timetable_cell(self, day, time_slot):
+        """Opens a dialog to edit a timetable cell."""
+        cell_key = f"{day}_{time_slot}"
+        cell_data = self.timetable_data.get(cell_key, {})
+
+        # Create edit window
+        edit_window = ctk.CTkToplevel(self)
+        edit_window.title(f"Edit {day} {time_slot}")
+        edit_window.geometry("500x700")
+        edit_window.resizable(True, True)
+
+        # Center window
+        edit_window.transient(self)
+        edit_window.grab_set()
+        edit_window.update_idletasks()
+        x = (self.winfo_x() + (self.winfo_width() // 2)) - (500 // 2)
+        y = (self.winfo_y() + (self.winfo_height() // 2)) - (700 // 2)
+        edit_window.geometry(f"500x700+{x}+{y}")
+
+        # Configure grid for edit window
+        edit_window.grid_columnconfigure(0, weight=1)
+        edit_window.grid_rowconfigure(1, weight=1)
+
+        # Title
+        title_label = ctk.CTkLabel(
+            edit_window,
+            text=f"📅 Edit {day} {time_slot}",
+            font=ctk.CTkFont(size=18, weight="bold")
+        )
+        title_label.grid(row=0, column=0, pady=(20, 10), padx=20, sticky="ew")
+
+        # Main scrollable container
+        main_scroll = ctk.CTkScrollableFrame(
+            edit_window, corner_radius=10)
+        main_scroll.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="nsew")
+        main_scroll.grid_columnconfigure(0, weight=1)
+
+        # Type selection
+        type_frame = ctk.CTkFrame(main_scroll, fg_color="transparent")
+        type_frame.pack(pady=10, padx=20, fill="x")
+
+        ctk.CTkLabel(type_frame, text="Type:", font=ctk.CTkFont(
+            size=14, weight="bold")).pack(anchor="w")
+
+        type_var = ctk.StringVar(value=cell_data.get('type', 'empty'))
+
+        type_radio_frame = ctk.CTkFrame(type_frame, fg_color="transparent")
+        type_radio_frame.pack(fill="x", pady=5)
+
+        ctk.CTkRadioButton(type_radio_frame, text="Empty",
+                           variable=type_var, value="empty").pack(side="left", padx=10)
+        ctk.CTkRadioButton(type_radio_frame, text="Lesson",
+                           variable=type_var, value="lesson").pack(side="left", padx=10)
+        ctk.CTkRadioButton(type_radio_frame, text="Task",
+                           variable=type_var, value="task").pack(side="left", padx=10)
+        ctk.CTkRadioButton(type_radio_frame, text="Blocked",
+                           variable=type_var, value="blocked").pack(side="left", padx=10)
+
+        # Lesson fields
+        lesson_frame = ctk.CTkFrame(main_scroll)
+        lesson_frame.pack(pady=10, padx=20, fill="x")
+
+        ctk.CTkLabel(lesson_frame, text="Lesson Details:", font=ctk.CTkFont(
+            size=14, weight="bold")).pack(anchor="w", pady=(10, 5))
+
+        # Module selection dropdown
+        ctk.CTkLabel(lesson_frame, text="Module:").pack(anchor="w")
+        module_var = ctk.StringVar(value=cell_data.get('module', ''))
+
+        # Create dropdown first, then update values
+        module_dropdown = ctk.CTkComboBox(
+            lesson_frame,
+            variable=module_var,
+            dropdown_hover_color=("#1A3A47", "#1A3A47")
+        )
+        module_dropdown.pack(fill="x", padx=10, pady=(0, 10))
+
+        # Function to refresh module list in dropdown
+        def refresh_module_dropdown():
+            # Reload modules data to get any new modules
+            self.modules_data = self.load_modules()
+            # Get list of available modules
+            module_names = list(self.modules_data.keys()
+                                ) if self.modules_data else []
+            module_dropdown.configure(values=module_names)
+            return module_names
+
+        # Initial load of modules
+        available_modules = refresh_module_dropdown()
+
+        # Refresh button for modules
+        refresh_btn_frame = ctk.CTkFrame(lesson_frame, fg_color="transparent")
+        refresh_btn_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+        refresh_modules_btn = ctk.CTkButton(
+            refresh_btn_frame,
+            text="🔄 Refresh Modules",
+            command=refresh_module_dropdown,
+            fg_color=("#482728", "#482728"),
+            hover_color=("#5A3233", "#5A3233"),
+            font=ctk.CTkFont(size=10),
+            height=25,
+            width=120
+        )
+        refresh_modules_btn.pack(anchor="w")
+
+        # Manual module entry (for new modules)
+        ctk.CTkLabel(lesson_frame, text="Or enter new module:").pack(
+            anchor="w")
+        module_entry = ctk.CTkEntry(
+            lesson_frame, placeholder_text="e.g., Mathematics")
+        module_entry.pack(fill="x", padx=10, pady=(0, 10))
+
+        # Room selection - dynamic based on selected module
+        ctk.CTkLabel(lesson_frame, text="Room:").pack(anchor="w")
+        room_var = ctk.StringVar(value=cell_data.get('room', ''))
+
+        room_dropdown = ctk.CTkComboBox(
+            lesson_frame,
+            variable=room_var,
+            dropdown_hover_color=("#1A3A47", "#1A3A47")
+        )
+        room_dropdown.pack(fill="x", padx=10, pady=(0, 10))
+
+        # Function to update room options based on selected module
+        def update_room_options():
+            selected_module = module_var.get()
+            if selected_module and selected_module in self.modules_data:
+                module_rooms = self.modules_data[selected_module].get(
+                    'rooms', ['Room Unknown'])
+                room_dropdown.configure(values=module_rooms)
+                # Auto-fill teacher if available
+                module_teacher = self.modules_data[selected_module].get(
+                    'teacher', '')
+                if module_teacher:
+                    teacher_entry.delete(0, 'end')
+                    teacher_entry.insert(0, module_teacher)
+            else:
+                room_dropdown.configure(
+                    values=['Room Unknown', 'Lab A', 'Lab B', 'Lecture Hall'])
+
+        # Update room options when module selection changes
+        def on_module_change(*args):
+            update_room_options()
+
+        module_var.trace('w', on_module_change)
+
+        # Initial room options setup
+        update_room_options()
+
+        ctk.CTkLabel(lesson_frame, text="Teacher:").pack(anchor="w")
+        teacher_entry = ctk.CTkEntry(
+            lesson_frame, placeholder_text="e.g., Dr. Smith")
+        teacher_entry.pack(fill="x", padx=10, pady=(0, 10))
+        teacher_entry.insert(0, cell_data.get('teacher', ''))
+
+        # Task fields
+        task_frame = ctk.CTkFrame(main_scroll)
+        task_frame.pack(pady=10, padx=20, fill="x")
+
+        ctk.CTkLabel(task_frame, text="Task Details:", font=ctk.CTkFont(
+            size=14, weight="bold")).pack(anchor="w", pady=(10, 5))
+
+        ctk.CTkLabel(task_frame, text="Task Name:").pack(anchor="w")
+        task_entry = ctk.CTkEntry(
+            task_frame, placeholder_text="e.g., Study Session")
+        task_entry.pack(fill="x", padx=10, pady=(0, 10))
+        task_entry.insert(0, cell_data.get('task', ''))
+
+        ctk.CTkLabel(task_frame, text="Description:").pack(anchor="w")
+        task_desc_entry = ctk.CTkEntry(
+            task_frame, placeholder_text="e.g., Prepare for exam")
+        task_desc_entry.pack(fill="x", padx=10, pady=(0, 10))
+        task_desc_entry.insert(0, cell_data.get('description', ''))
+
+        # Buttons (outside scroll area)
+        btn_frame = ctk.CTkFrame(edit_window, fg_color="transparent")
+        btn_frame.grid(row=2, column=0, pady=20)
+
+        def save_cell():
+            cell_type = type_var.get()
+            if cell_type == "empty":
+                if cell_key in self.timetable_data:
+                    del self.timetable_data[cell_key]
+            else:
+                # Get module name from dropdown or manual entry
+                selected_module = module_var.get() if module_var.get() else module_entry.get()
+
+                self.timetable_data[cell_key] = {
+                    'type': cell_type,
+                    'module': selected_module,
+                    'room': room_var.get(),
+                    'teacher': teacher_entry.get(),
+                    'task': task_entry.get(),
+                    'description': task_desc_entry.get()
+                }
+
+            self.save_timetable()
+            edit_window.destroy()
+            self.show_timetable()  # Refresh the timetable view
+
+        save_btn = ctk.CTkButton(
+            btn_frame,
+            text="💾 Save",
+            command=save_cell,
+            fg_color=("#0B2027", "#0B2027"),
+            hover_color=("#1A3A47", "#1A3A47")
+        )
+        save_btn.pack(side="left", padx=10)
+
+        cancel_btn = ctk.CTkButton(
+            btn_frame,
+            text="❌ Cancel",
+            command=edit_window.destroy,
+            fg_color=("gray", "darkgray"),
+            hover_color=("darkgray", "gray")
+        )
+        cancel_btn.pack(side="left", padx=10)
+
+    def show_modules_manager(self):
+        """Shows the module management window."""
+        # Create modules manager window
+        modules_window = ctk.CTkToplevel(self)
+        modules_window.title("Manage Modules")
+        modules_window.geometry("600x500")
+        modules_window.resizable(True, True)
+
+        # Center window
+        modules_window.transient(self)
+        modules_window.grab_set()
+        modules_window.update_idletasks()
+        x = (self.winfo_x() + (self.winfo_width() // 2)) - (600 // 2)
+        y = (self.winfo_y() + (self.winfo_height() // 2)) - (500 // 2)
+        modules_window.geometry(f"600x500+{x}+{y}")
+
+        # Configure grid
+        modules_window.grid_columnconfigure(0, weight=1)
+        modules_window.grid_rowconfigure(1, weight=1)
+
+        # Title
+        title_label = ctk.CTkLabel(
+            modules_window,
+            text="📚 Module Management",
+            font=ctk.CTkFont(size=24, weight="bold")
+        )
+        title_label.grid(row=0, column=0, pady=(20, 10))
+
+        # Main container
+        main_container = ctk.CTkFrame(modules_window)
+        main_container.grid(row=1, column=0, padx=20,
+                            pady=(0, 20), sticky="nsew")
+        main_container.grid_columnconfigure(0, weight=1)
+        main_container.grid_rowconfigure(0, weight=1)
+
+        # Scrollable frame for modules list
+        modules_scroll = ctk.CTkScrollableFrame(main_container)
+        modules_scroll.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+
+        # Add new module section
+        new_module_frame = ctk.CTkFrame(modules_scroll)
+        new_module_frame.pack(fill="x", padx=10, pady=(10, 20))
+
+        ctk.CTkLabel(
+            new_module_frame,
+            text="Add New Module",
+            font=ctk.CTkFont(size=18, weight="bold")
+        ).pack(pady=(15, 10))
+
+        # Module name entry
+        name_frame = ctk.CTkFrame(new_module_frame, fg_color="transparent")
+        name_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(name_frame, text="Module Name:").pack(anchor="w")
+        module_name_entry = ctk.CTkEntry(
+            name_frame, placeholder_text="e.g., CST3510 Memory Analysis"
+        )
+        module_name_entry.pack(fill="x", pady=(0, 10))
+
+        # Teacher entry
+        teacher_frame = ctk.CTkFrame(new_module_frame, fg_color="transparent")
+        teacher_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(teacher_frame, text="Teacher/Lecturer:").pack(anchor="w")
+        teacher_entry = ctk.CTkEntry(
+            teacher_frame, placeholder_text="e.g., Mr David Neilson"
+        )
+        teacher_entry.pack(fill="x", pady=(0, 10))
+
+        # Rooms entry
+        rooms_frame = ctk.CTkFrame(new_module_frame, fg_color="transparent")
+        rooms_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(
+            rooms_frame, text="Possible Rooms (comma-separated):").pack(anchor="w")
+        rooms_entry = ctk.CTkEntry(
+            rooms_frame, placeholder_text="e.g., Lab A, Lab B, Lecture Hall 1"
+        )
+        rooms_entry.pack(fill="x", pady=(0, 10))
+
+        # Color selection
+        color_frame = ctk.CTkFrame(new_module_frame, fg_color="transparent")
+        color_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(color_frame, text="Module Color:").pack(anchor="w")
+
+        # Color selection buttons
+        color_options = [
+            ("#FF6B6B", "Red"),
+            ("#4ECDC4", "Teal"),
+            ("#45B7D1", "Blue"),
+            ("#96CEB4", "Green"),
+            ("#FFEAA7", "Yellow"),
+            ("#DDA0DD", "Purple"),
+            ("#FFB347", "Orange"),
+            ("#98D8C8", "Mint"),
+            ("#F7DC6F", "Gold"),
+            ("#BB8FCE", "Lavender")
+        ]
+
+        selected_color = ctk.StringVar(value=color_options[0][0])
+        color_buttons = []  # Keep track of color buttons for highlighting
+
+        colors_container = ctk.CTkFrame(color_frame, fg_color="transparent")
+        colors_container.pack(fill="x", pady=(0, 10))
+
+        def update_color_selection(new_color):
+            selected_color.set(new_color)
+            # Update button appearances
+            for btn, (hex_color, _) in zip(color_buttons, color_options):
+                if hex_color == new_color:
+                    btn.configure(border_width=3, border_color="white")
+                else:
+                    btn.configure(border_width=0)
+            # Update preview
+            update_preview()
+
+        for i, (color_hex, color_name) in enumerate(color_options):
+            row = i // 5
+            col = i % 5
+
+            color_btn = ctk.CTkButton(
+                colors_container,
+                text="",
+                width=40,
+                height=30,
+                fg_color=color_hex,
+                hover_color=color_hex,
+                border_width=3 if i == 0 else 0,  # Highlight first color initially
+                border_color="white" if i == 0 else None,
+                command=lambda c=color_hex: update_color_selection(c)
+            )
+            color_btn.grid(row=row, column=col, padx=2, pady=2)
+            color_buttons.append(color_btn)
+
+        # Preview frame
+        preview_frame = ctk.CTkFrame(color_frame, fg_color="transparent")
+        preview_frame.pack(fill="x", pady=(10, 0))
+
+        ctk.CTkLabel(preview_frame, text="Preview:").pack(anchor="w")
+
+        preview_container = ctk.CTkFrame(preview_frame)
+        preview_container.pack(fill="x", pady=(5, 0))
+
+        preview_label = ctk.CTkLabel(
+            preview_container,
+            text="Sample Module",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=selected_color.get(),
+            text_color="white",
+            corner_radius=6,
+            height=35
+        )
+        preview_label.pack(padx=10, pady=10, fill="x")
+
+        def update_preview():
+            module_name = module_name_entry.get().strip() or "Sample Module"
+            preview_label.configure(
+                text=module_name,
+                fg_color=selected_color.get()
+            )
+
+        # Update preview when module name changes
+        def on_name_change(*args):
+            update_preview()
+
+        module_name_entry.bind('<KeyRelease>', on_name_change)
+        teacher_entry.bind('<KeyRelease>', on_name_change)
+        rooms_entry.bind('<KeyRelease>', on_name_change)
+
+        # Add button
+        def add_module():
+            name = module_name_entry.get().strip()
+            teacher = teacher_entry.get().strip() or "Unknown"
+            rooms_text = rooms_entry.get().strip()
+            rooms_list = [room.strip() for room in rooms_text.split(
+                ',') if room.strip()] if rooms_text else ["Room Unknown"]
+
+            if name and name not in self.modules_data:
+                self.modules_data[name] = {
+                    'color': selected_color.get(),
+                    'teacher': teacher,
+                    'rooms': rooms_list,
+                    'created': datetime.now().isoformat()
+                }
+                self.save_modules()
+                # Debug output
+                print(
+                    f"Module '{name}' saved with color {selected_color.get()}")
+                print(f"Teacher: {teacher}")
+                print(f"Rooms: {rooms_list}")
+                print(f"Total modules: {len(self.modules_data)}")
+                # Clear the form
+                module_name_entry.delete(0, 'end')
+                teacher_entry.delete(0, 'end')
+                rooms_entry.delete(0, 'end')
+                # Reset to first color
+                update_color_selection(color_options[0][0])
+                # Show success message
+                success_label = ctk.CTkLabel(
+                    new_module_frame,
+                    text="✅ Module added successfully!",
+                    text_color="#0B2027",
+                    font=ctk.CTkFont(size=12, weight="bold")
+                )
+                success_label.pack(pady=5)
+                modules_window.after(2000, success_label.destroy)
+                # Refresh the existing modules section
+                refresh_existing_modules()
+            elif not name:
+                # Show error message for empty name
+                error_label = ctk.CTkLabel(
+                    new_module_frame,
+                    text="❌ Please enter a module name!",
+                    text_color="red",
+                    font=ctk.CTkFont(size=12, weight="bold")
+                )
+                error_label.pack(pady=5)
+                modules_window.after(2000, error_label.destroy)
+            elif name in self.modules_data:
+                # Show error message for duplicate
+                error_label = ctk.CTkLabel(
+                    new_module_frame,
+                    text="❌ Module already exists!",
+                    text_color="red",
+                    font=ctk.CTkFont(size=12, weight="bold")
+                )
+                error_label.pack(pady=5)
+                modules_window.after(2000, error_label.destroy)
+
+        add_btn = ctk.CTkButton(
+            new_module_frame,
+            text="💾 Save Module",
+            command=add_module,
+            fg_color=("#0B2027", "#0B2027"),
+            hover_color=("#1A3A47", "#1A3A47"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=35
+        )
+        add_btn.pack(pady=(10, 15))
+
+        # Function to refresh existing modules display
+        def refresh_existing_modules():
+            # Clear existing modules display
+            for widget in modules_scroll.winfo_children():
+                if widget != new_module_frame:
+                    widget.destroy()
+
+            # Recreate existing modules section
+            if self.modules_data:
+                existing_frame = ctk.CTkFrame(modules_scroll)
+                existing_frame.pack(fill="x", padx=10, pady=10)
+
+                ctk.CTkLabel(
+                    existing_frame,
+                    text="Existing Modules",
+                    font=ctk.CTkFont(size=18, weight="bold")
+                ).pack(pady=(15, 10))
+
+                for module_name, module_info in self.modules_data.items():
+                    module_item = ctk.CTkFrame(existing_frame)
+                    module_item.pack(fill="x", padx=15, pady=5)
+
+                    # Module info frame
+                    info_frame = ctk.CTkFrame(
+                        module_item, fg_color="transparent")
+                    info_frame.pack(fill="x", side="left", expand=True)
+
+                    # Color indicator
+                    color_indicator = ctk.CTkLabel(
+                        info_frame,
+                        text="●",
+                        font=ctk.CTkFont(size=20),
+                        text_color=module_info['color']
+                    )
+                    color_indicator.pack(side="left", padx=(10, 5))
+
+                    # Module details frame
+                    details_frame = ctk.CTkFrame(
+                        info_frame, fg_color="transparent")
+                    details_frame.pack(side="left", fill="x",
+                                       expand=True, padx=(0, 10))
+
+                    # Module name
+                    name_label = ctk.CTkLabel(
+                        details_frame,
+                        text=module_name,
+                        font=ctk.CTkFont(size=14, weight="bold"),
+                        anchor="w"
+                    )
+                    name_label.pack(anchor="w")
+
+                    # Teacher info
+                    teacher = module_info.get('teacher', 'Unknown')
+                    teacher_label = ctk.CTkLabel(
+                        details_frame,
+                        text=f"👨‍🏫 {teacher}",
+                        font=ctk.CTkFont(size=11),
+                        text_color=("gray40", "gray60"),
+                        anchor="w"
+                    )
+                    teacher_label.pack(anchor="w")
+
+                    # Rooms info
+                    rooms = module_info.get('rooms', ['Room Unknown'])
+                    rooms_text = ", ".join(rooms)
+                    if len(rooms_text) > 35:
+                        rooms_text = rooms_text[:32] + "..."
+                    rooms_label = ctk.CTkLabel(
+                        details_frame,
+                        text=f"🏛️ {rooms_text}",
+                        font=ctk.CTkFont(size=11),
+                        text_color=("gray40", "gray60"),
+                        anchor="w"
+                    )
+                    rooms_label.pack(anchor="w")
+
+                    # Delete button
+                    def delete_module(name=module_name):
+                        del self.modules_data[name]
+                        self.save_modules()
+                        refresh_existing_modules()  # Refresh instead of destroying window
+
+                    delete_btn = ctk.CTkButton(
+                        module_item,
+                        text="🗑️",
+                        width=30,
+                        height=30,
+                        command=delete_module,
+                        fg_color=("red", "darkred"),
+                        hover_color=("darkred", "red")
+                    )
+                    delete_btn.pack(side="right", padx=10, pady=5)
+
+        # Initial display of existing modules
+        refresh_existing_modules()
+
+        # Close button
+        close_btn = ctk.CTkButton(
+            modules_window,
+            text="✓ Done",
+            command=modules_window.destroy,
+            fg_color=("#0B2027", "#0B2027"),
+            hover_color=("#1A3A47", "#1A3A47")
+        )
+        close_btn.grid(row=2, column=0, pady=10)
+
     def update_month_notification(self, month_name, note_count):
         """Updates the notification for a specific month."""
         # Find the month number for the month name
@@ -918,7 +1828,7 @@ class CalendarApp(ctk.CTk):
             notification_frame = ctk.CTkFrame(
                 self.left_frame, fg_color="transparent")
             notification_frame.grid(
-                row=month_num, column=1, padx=(5, 15), pady=2, sticky="ne")
+                row=month_num+1, column=1, padx=(5, 15), pady=2, sticky="ne")
 
             # Try using Canvas to overlay text on image without background
             import tkinter as tk
@@ -934,7 +1844,7 @@ class CalendarApp(ctk.CTk):
             # Load and draw the icon image on canvas
             try:
                 from PIL import ImageTk
-                icon_pil = Image.open("icon.png").resize((42, 42))
+                icon_pil = Image.open("bell.png").resize((42, 42))
                 icon_photo = ImageTk.PhotoImage(icon_pil)
                 canvas.create_image(21, 21, image=icon_photo)
                 # Keep a reference to prevent garbage collection
