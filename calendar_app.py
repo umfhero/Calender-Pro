@@ -2,14 +2,64 @@ import customtkinter as ctk
 import calendar
 import json
 import os
+import sys
 import tkinter as tk
 from datetime import datetime
 from typing import Dict, List, Any
 from PIL import Image, ImageTk
+from tkinter import filedialog
 
 # Configure the appearance mode and default color theme
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
+
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller."""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+
+def load_storage_settings():
+    """Load storage location settings from config file."""
+    # Default location to OneDrive folder
+    default_location = r"C:\Users\umfhe\OneDrive - Middlesex University\A - Calendar Pro"
+
+    # Create the default directory if it doesn't exist
+    if not os.path.exists(default_location):
+        try:
+            os.makedirs(default_location, exist_ok=True)
+        except:
+            # If we can't create the OneDrive folder, fall back to current directory
+            default_location = os.getcwd()
+
+    settings_file = 'calendar_settings.json'
+    if os.path.exists(settings_file):
+        try:
+            with open(settings_file, 'r') as f:
+                settings = json.load(f)
+                return settings.get('storage_location', default_location)
+        except (json.JSONDecodeError, FileNotFoundError):
+            return default_location
+    return default_location
+
+
+def save_storage_settings(storage_location):
+    """Save storage location settings to config file."""
+    settings = {'storage_location': storage_location}
+    with open('calendar_settings.json', 'w') as f:
+        json.dump(settings, f, indent=4)
+
+
+def get_data_file_path(filename):
+    """Get the full path for a data file based on storage location setting."""
+    storage_location = load_storage_settings()
+    return os.path.join(storage_location, filename)
 
 
 class CalendarApp(ctk.CTk):
@@ -32,6 +82,9 @@ class CalendarApp(ctk.CTk):
         # Configure grid weights
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
+
+        # Initialize storage location
+        self.storage_location = load_storage_settings()
 
         # Load existing notes
         self.note_data = self.load_notes()
@@ -70,21 +123,21 @@ class CalendarApp(ctk.CTk):
 
         # Method 1: Try iconbitmap with .ico file
         try:
-            self.iconbitmap("calendar.ico")
+            self.iconbitmap(resource_path("calendar.ico"))
             icon_set = True
         except:
             pass
 
         # Method 1b: Try wm_iconbitmap as alternative
         try:
-            self.wm_iconbitmap("calendar.ico")
+            self.wm_iconbitmap(resource_path("calendar.ico"))
             icon_set = True
         except:
             pass
 
         # Method 2: Try iconphoto with PNG converted to PhotoImage
         try:
-            icon_img = tk.PhotoImage(file="calendar.png")
+            icon_img = tk.PhotoImage(file=resource_path("icon.png"))
             self.iconphoto(True, icon_img)
             icon_set = True
         except:
@@ -93,8 +146,8 @@ class CalendarApp(ctk.CTk):
         # Method 3: Try using PIL to load and convert the icon
         try:
             from PIL import Image, ImageTk
-            # Load calendar.png and convert to PhotoImage
-            pil_img = Image.open("calendar.png")
+            # Load icon.png and convert to PhotoImage
+            pil_img = Image.open(resource_path("icon.png"))
             # Resize to standard icon size if needed
             pil_img = pil_img.resize((32, 32), Image.Resampling.LANCZOS)
             tk_img = ImageTk.PhotoImage(pil_img)
@@ -108,7 +161,7 @@ class CalendarApp(ctk.CTk):
         # Method 4: Try with .ico file converted through PIL
         try:
             from PIL import Image, ImageTk
-            pil_img = Image.open("calendar.ico")
+            pil_img = Image.open(resource_path("calendar.ico"))
             pil_img = pil_img.resize((32, 32), Image.Resampling.LANCZOS)
             tk_img = ImageTk.PhotoImage(pil_img)
             self.iconphoto(True, tk_img)
@@ -129,8 +182,8 @@ class CalendarApp(ctk.CTk):
         # Configure left frame grid
         self.left_frame.grid_columnconfigure(0, weight=1)
         self.left_frame.grid_columnconfigure(1, weight=0)  # For notifications
-        # Adjust for timetable button (row 13 + 1)
-        self.left_frame.grid_rowconfigure(14, weight=1)
+        # Adjust for timetable and settings buttons (row 13 + 2)
+        self.left_frame.grid_rowconfigure(15, weight=1)
 
         # Home button at the top
         home_btn_frame = ctk.CTkFrame(self.left_frame, fg_color="transparent")
@@ -141,8 +194,8 @@ class CalendarApp(ctk.CTk):
         home_icon = None
         try:
             home_icon = ctk.CTkImage(
-                light_image=Image.open("house.ico"),
-                dark_image=Image.open("house.ico"),
+                light_image=Image.open(resource_path("house.ico")),
+                dark_image=Image.open(resource_path("house.ico")),
                 size=(37, 37)
             )
         except:
@@ -174,8 +227,8 @@ class CalendarApp(ctk.CTk):
         timetable_icon = None
         try:
             timetable_icon = ctk.CTkImage(
-                light_image=Image.open("edit.png"),
-                dark_image=Image.open("edit.png"),
+                light_image=Image.open(resource_path("edit.png")),
+                dark_image=Image.open(resource_path("edit.png")),
                 size=(37, 37)
             )
         except:
@@ -183,7 +236,7 @@ class CalendarApp(ctk.CTk):
 
         timetable_btn = ctk.CTkButton(
             timetable_btn_frame,
-            text="  Time Table" if not timetable_icon else "",
+            text="  Time Table",
             image=timetable_icon,
             compound="left",
             command=self.show_timetable,
@@ -196,6 +249,39 @@ class CalendarApp(ctk.CTk):
             width=220
         )
         timetable_btn.pack(fill="x")
+
+        # Settings button
+        settings_btn_frame = ctk.CTkFrame(
+            self.left_frame, fg_color="transparent")
+        settings_btn_frame.grid(
+            row=2, column=0, padx=15, pady=(5, 5), sticky="ew")
+
+        # Load settings icon (using edit icon as placeholder)
+        settings_icon = None
+        try:
+            settings_icon = ctk.CTkImage(
+                light_image=Image.open(resource_path("edit.png")),
+                dark_image=Image.open(resource_path("edit.png")),
+                size=(37, 37)
+            )
+        except:
+            pass
+
+        settings_btn = ctk.CTkButton(
+            settings_btn_frame,
+            text="  Settings",
+            image=settings_icon,
+            compound="left",
+            command=self.show_settings,
+            fg_color=("#2E4057", "#2E4057"),
+            hover_color=("#3A506B", "#3A506B"),
+            text_color=("white", "white"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            corner_radius=10,
+            height=40,
+            width=220
+        )
+        settings_btn.pack(fill="x")
 
         # Month buttons container
         self.month_buttons = {}
@@ -215,10 +301,10 @@ class CalendarApp(ctk.CTk):
                 [day for day, notes in month_data.items() if notes])
             is_current_month = (i == current_month)
 
-            # Create button container with rounded corners (adjust row to i+1 for timetable button)
+            # Create button container with rounded corners (adjust row to i+2 for timetable and settings buttons)
             btn_container = ctk.CTkFrame(
                 self.left_frame, corner_radius=12, fg_color="transparent")
-            btn_container.grid(row=i+1, column=0, padx=15, pady=2, sticky="ew")
+            btn_container.grid(row=i+2, column=0, padx=15, pady=2, sticky="ew")
 
             # Month button with current month highlighting
             notification_text = f"{i} {month_name}"
@@ -249,7 +335,7 @@ class CalendarApp(ctk.CTk):
                 notification_frame = ctk.CTkFrame(
                     self.left_frame, fg_color="transparent")
                 notification_frame.grid(
-                    row=i+1, column=1, padx=(5, 15), pady=2, sticky="ne")
+                    row=i+2, column=1, padx=(5, 15), pady=2, sticky="ne")
 
                 # Try using Canvas to overlay text on image without background
                 import tkinter as tk
@@ -265,19 +351,21 @@ class CalendarApp(ctk.CTk):
                 # Load and draw the icon image on canvas
                 try:
                     from PIL import ImageTk
-                    icon_pil = Image.open("bell.png").resize((45, 45))
+                    icon_pil = Image.open(resource_path(
+                        "bell.png")).resize((42, 42))
                     icon_photo = ImageTk.PhotoImage(icon_pil)
                     canvas.create_image(21, 21, image=icon_photo)
                     # Keep a reference to prevent garbage collection
                     canvas.image = icon_photo
 
-                    # Draw text directly on canvas
+                    # Draw text with black color (no background circle)
                     canvas.create_text(21, 21, text=str(note_count),
-                                       font=("Arial", 16, "bold"),
+                                       font=("Arial", 14, "bold"),
                                        fill="black")
-                except:
+                except Exception as e:
                     # Fallback to simple colored circle with text
-                    canvas.create_oval(5, 5, 37, 37, fill="red", outline="")
+                    canvas.create_oval(
+                        5, 5, 37, 37, fill="red", outline="white", width=2)
                     canvas.create_text(21, 21, text=str(note_count),
                                        font=("Arial", 16, "bold"),
                                        fill="white")
@@ -546,8 +634,8 @@ class CalendarApp(ctk.CTk):
         home_icon_welcome = None
         try:
             home_icon_welcome = ctk.CTkImage(
-                light_image=Image.open("house.ico"),
-                dark_image=Image.open("house.ico"),
+                light_image=Image.open(resource_path("house.ico")),
+                dark_image=Image.open(resource_path("house.ico")),
                 size=(48, 48)
             )
         except:
@@ -634,8 +722,8 @@ class CalendarApp(ctk.CTk):
                 edit_icon = None
                 try:
                     edit_icon = ctk.CTkImage(
-                        light_image=Image.open("edit.png"),
-                        dark_image=Image.open("edit.png"),
+                        light_image=Image.open(resource_path("edit.png")),
+                        dark_image=Image.open(resource_path("edit.png")),
                         size=(36, 36)
                     )
                 except:
@@ -793,7 +881,8 @@ class CalendarApp(ctk.CTk):
         self.note_data[year_str][month_name][day_str] = notes_list
 
         # Save to file
-        with open('notes.json', 'w') as f:
+        notes_file_path = get_data_file_path('notes.json')
+        with open(notes_file_path, 'w') as f:
             json.dump(self.note_data, f, indent=4)
 
         # Update the month counter on the left panel
@@ -819,9 +908,10 @@ class CalendarApp(ctk.CTk):
 
     def load_notes(self):
         """Loads notes from the notes.json file."""
-        if os.path.exists('notes.json'):
+        notes_file_path = get_data_file_path('notes.json')
+        if os.path.exists(notes_file_path):
             try:
-                with open('notes.json', 'r') as f:
+                with open(notes_file_path, 'r') as f:
                     return json.load(f)
             except (json.JSONDecodeError, FileNotFoundError):
                 return {}
@@ -990,7 +1080,8 @@ class CalendarApp(ctk.CTk):
         self.note_data[year_str][month_name][day_str] = notes_list
 
         # Save to file
-        with open('notes.json', 'w') as f:
+        notes_file_path = get_data_file_path('notes.json')
+        with open(notes_file_path, 'w') as f:
             json.dump(self.note_data, f, indent=4)
 
         # Update the month counter on the left panel
@@ -1006,9 +1097,10 @@ class CalendarApp(ctk.CTk):
 
     def load_timetable(self):
         """Loads timetable data from the timetable.json file."""
-        if os.path.exists('timetable.json'):
+        timetable_file_path = get_data_file_path('timetable.json')
+        if os.path.exists(timetable_file_path):
             try:
-                with open('timetable.json', 'r') as f:
+                with open(timetable_file_path, 'r') as f:
                     return json.load(f)
             except (json.JSONDecodeError, FileNotFoundError):
                 return {}
@@ -1016,14 +1108,16 @@ class CalendarApp(ctk.CTk):
 
     def save_timetable(self):
         """Saves timetable data to timetable.json file."""
-        with open('timetable.json', 'w') as f:
+        timetable_file_path = get_data_file_path('timetable.json')
+        with open(timetable_file_path, 'w') as f:
             json.dump(self.timetable_data, f, indent=4)
 
     def load_modules(self):
         """Loads modules data from the modules.json file."""
-        if os.path.exists('modules.json'):
+        modules_file_path = get_data_file_path('modules.json')
+        if os.path.exists(modules_file_path):
             try:
-                with open('modules.json', 'r') as f:
+                with open(modules_file_path, 'r') as f:
                     return json.load(f)
             except (json.JSONDecodeError, FileNotFoundError):
                 return {}
@@ -1031,7 +1125,8 @@ class CalendarApp(ctk.CTk):
 
     def save_modules(self):
         """Saves modules data to modules.json file."""
-        with open('modules.json', 'w') as f:
+        modules_file_path = get_data_file_path('modules.json')
+        with open(modules_file_path, 'w') as f:
             json.dump(self.modules_data, f, indent=4)
 
     def show_timetable(self):
@@ -1464,6 +1559,304 @@ class CalendarApp(ctk.CTk):
         )
         cancel_btn.pack(side="left", padx=10)
 
+    def show_settings(self):
+        """Shows the settings window for configuring storage location."""
+        # Create settings window
+        settings_window = ctk.CTkToplevel(self)
+        settings_window.title("Calendar Pro Settings")
+        settings_window.geometry("600x400")
+        settings_window.resizable(True, True)
+
+        # Center window
+        settings_window.transient(self)
+        settings_window.grab_set()
+        settings_window.update_idletasks()
+        x = (self.winfo_x() + (self.winfo_width() // 2)) - (600 // 2)
+        y = (self.winfo_y() + (self.winfo_height() // 2)) - (400 // 2)
+        settings_window.geometry(f"600x400+{x}+{y}")
+
+        # Configure grid
+        settings_window.grid_columnconfigure(0, weight=1)
+        settings_window.grid_rowconfigure(1, weight=1)
+
+        # Title
+        title_label = ctk.CTkLabel(
+            settings_window,
+            text="⚙️ Calendar Pro Settings",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color=("#0B2027", "#0B2027")
+        )
+        title_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
+
+        # Main settings container
+        settings_container = ctk.CTkFrame(settings_window, corner_radius=15)
+        settings_container.grid(row=1, column=0, padx=20,
+                                pady=(0, 10), sticky="nsew")
+        settings_container.grid_columnconfigure(0, weight=1)
+
+        # Storage location section
+        storage_section = ctk.CTkFrame(
+            settings_container, fg_color="transparent")
+        storage_section.pack(fill="x", padx=20, pady=20)
+
+        # Section title
+        storage_title = ctk.CTkLabel(
+            storage_section,
+            text="📁 Data Storage Location",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=("#0B2027", "#0B2027")
+        )
+        storage_title.pack(anchor="w", pady=(0, 10))
+
+        # Description
+        description_label = ctk.CTkLabel(
+            storage_section,
+            text="Choose where to store your notes, timetable, and modules data.\nSelect a OneDrive folder to sync between devices.",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray40", "gray60"),
+            justify="left"
+        )
+        description_label.pack(anchor="w", pady=(0, 15))
+
+        # Current location display
+        current_location_frame = ctk.CTkFrame(
+            storage_section, fg_color=("gray95", "gray10"))
+        current_location_frame.pack(fill="x", pady=(0, 15))
+
+        current_label = ctk.CTkLabel(
+            current_location_frame,
+            text="Current Location:",
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        current_label.pack(anchor="w", padx=15, pady=(10, 5))
+
+        current_path_label = ctk.CTkLabel(
+            current_location_frame,
+            text=load_storage_settings(),
+            font=ctk.CTkFont(size=11),
+            text_color=("gray20", "gray80"),
+            wraplength=500
+        )
+        current_path_label.pack(anchor="w", padx=15, pady=(0, 10))
+
+        # Buttons frame
+        buttons_frame = ctk.CTkFrame(storage_section, fg_color="transparent")
+        buttons_frame.pack(fill="x", pady=(0, 10))
+
+        # Change location button
+        change_location_btn = ctk.CTkButton(
+            buttons_frame,
+            text="📂 Choose New Location",
+            command=lambda: self.choose_storage_location(
+                current_path_label, settings_window),
+            fg_color=("#0B2027", "#0B2027"),
+            hover_color=("#1A3A47", "#1A3A47"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            corner_radius=10,
+            height=40
+        )
+        change_location_btn.pack(side="left", padx=(0, 10))
+
+        # Reset to default button
+        reset_location_btn = ctk.CTkButton(
+            buttons_frame,
+            text="🔄 Reset to Default",
+            command=lambda: self.reset_storage_location(current_path_label),
+            fg_color=("#482728", "#482728"),
+            hover_color=("#5A3233", "#5A3233"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            corner_radius=10,
+            height=40
+        )
+        reset_location_btn.pack(side="left", padx=(0, 10))
+
+        # Info section
+        info_section = ctk.CTkFrame(
+            settings_container, fg_color=("lightblue", "darkblue"))
+        info_section.pack(fill="x", padx=20, pady=(0, 20))
+
+        info_title = ctk.CTkLabel(
+            info_section,
+            text="💡 Tip: OneDrive Sync",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=("white", "white")
+        )
+        info_title.pack(anchor="w", padx=15, pady=(10, 5))
+
+        info_text = ctk.CTkLabel(
+            info_section,
+            text="To sync between devices:\n1. Choose a folder inside your OneDrive\n2. Install the app on other devices\n3. Set the same OneDrive folder on each device",
+            font=ctk.CTkFont(size=11),
+            text_color=("white", "white"),
+            justify="left"
+        )
+        info_text.pack(anchor="w", padx=15, pady=(0, 10))
+
+        # Close button
+        close_btn_frame = ctk.CTkFrame(settings_window, fg_color="transparent")
+        close_btn_frame.grid(row=2, column=0, pady=20)
+
+        close_btn = ctk.CTkButton(
+            close_btn_frame,
+            text="✅ Close",
+            command=settings_window.destroy,
+            fg_color=("#0B2027", "#0B2027"),
+            hover_color=("#1A3A47", "#1A3A47"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            corner_radius=10,
+            height=40
+        )
+        close_btn.pack()
+
+    def choose_storage_location(self, path_label, window):
+        """Opens a folder dialog to choose storage location."""
+        current_location = load_storage_settings()
+        new_location = filedialog.askdirectory(
+            title="Choose Calendar Data Storage Location",
+            initialdir=current_location
+        )
+
+        if new_location:
+            # Save the new location
+            save_storage_settings(new_location)
+            self.storage_location = new_location
+
+            # Update the display
+            path_label.configure(text=new_location)
+
+            # Show confirmation and reload data
+            self.show_location_changed_message(window, new_location)
+            self.reload_data_from_new_location()
+
+    def reset_storage_location(self, path_label):
+        """Resets storage location to default OneDrive location."""
+        default_location = r"C:\Users\umfhe\OneDrive - Middlesex University\A - Calendar Pro"
+        # Create the default directory if it doesn't exist
+        if not os.path.exists(default_location):
+            try:
+                os.makedirs(default_location, exist_ok=True)
+            except:
+                # If we can't create the OneDrive folder, fall back to current directory
+                default_location = os.getcwd()
+
+        save_storage_settings(default_location)
+        self.storage_location = default_location
+        path_label.configure(text=default_location)
+        self.reload_data_from_new_location()
+
+    def reload_data_from_new_location(self):
+        """Reloads all data from the new storage location and refreshes UI."""
+        # Reload all data files
+        self.note_data = self.load_notes()
+        self.timetable_data = self.load_timetable()
+        self.modules_data = self.load_modules()
+
+        # Add preset module if no modules exist in new location
+        if not self.modules_data:
+            self.modules_data = {
+                "CST3510 Memory Analysis": {
+                    "color": "#45B7D1",
+                    "teacher": "Mr David Neilson",
+                    "rooms": ["Room Unknown", "Lab A", "Lab B", "Lecture Hall 1", "Lecture Hall 2"],
+                    "created": datetime.now().isoformat()
+                }
+            }
+            self.save_modules()
+
+        # Refresh the UI
+        self.refresh_month_notifications()
+
+        # Return to home view to show updated data
+        self.show_months_list()
+
+    def refresh_month_notifications(self):
+        """Refreshes the notification counters for all months."""
+        current_year = datetime.now().year
+
+        # Clear existing notification labels
+        for month_name, canvas in self.month_note_labels.items():
+            if canvas:
+                canvas.destroy()
+
+        # Recreate the month list with updated data
+        for widget in self.left_frame.winfo_children():
+            # Month buttons start at row 3
+            if hasattr(widget, 'grid_info') and widget.grid_info()['row'] >= 3:
+                widget.destroy()
+
+        self.month_buttons = {}
+        self.month_note_labels = {}
+        self.create_month_list()
+
+    def show_location_changed_message(self, parent_window, new_location):
+        """Shows a message about location change and data migration."""
+        # Create message window
+        msg_window = ctk.CTkToplevel(parent_window)
+        msg_window.title("Location Changed")
+        msg_window.geometry("500x300")
+        msg_window.resizable(False, False)
+
+        # Center on parent
+        msg_window.transient(parent_window)
+        msg_window.grab_set()
+        parent_window.update_idletasks()
+        x = (parent_window.winfo_x() +
+             (parent_window.winfo_width() // 2)) - (500 // 2)
+        y = (parent_window.winfo_y() +
+             (parent_window.winfo_height() // 2)) - (300 // 2)
+        msg_window.geometry(f"500x300+{x}+{y}")
+
+        # Configure grid
+        msg_window.grid_columnconfigure(0, weight=1)
+        msg_window.grid_rowconfigure(1, weight=1)
+
+        # Title
+        title_label = ctk.CTkLabel(
+            msg_window,
+            text="✅ Storage Location Updated",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=("#0B2027", "#0B2027")
+        )
+        title_label.grid(row=0, column=0, padx=20, pady=(20, 10))
+
+        # Message content
+        content_frame = ctk.CTkFrame(msg_window, corner_radius=15)
+        content_frame.grid(row=1, column=0, padx=20,
+                           pady=(0, 10), sticky="nsew")
+
+        message_text = f"""Storage location changed to:
+{new_location}
+
+Your existing data files will remain in the old location.
+
+To move your data to the new location:
+• Copy notes.json, timetable.json, and modules.json
+• From the old location to: {new_location}
+
+The app will create new files if none exist in the new location."""
+
+        message_label = ctk.CTkLabel(
+            content_frame,
+            text=message_text,
+            font=ctk.CTkFont(size=12),
+            justify="left",
+            wraplength=450
+        )
+        message_label.pack(padx=20, pady=20)
+
+        # Close button
+        close_btn = ctk.CTkButton(
+            msg_window,
+            text="OK",
+            command=msg_window.destroy,
+            fg_color=("#0B2027", "#0B2027"),
+            hover_color=("#1A3A47", "#1A3A47"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            corner_radius=10,
+            height=40
+        )
+        close_btn.grid(row=2, column=0, pady=20)
+
     def show_modules_manager(self):
         """Shows the module management window."""
         # Create modules manager window
@@ -1828,7 +2221,7 @@ class CalendarApp(ctk.CTk):
             notification_frame = ctk.CTkFrame(
                 self.left_frame, fg_color="transparent")
             notification_frame.grid(
-                row=month_num+1, column=1, padx=(5, 15), pady=2, sticky="ne")
+                row=month_num+2, column=1, padx=(5, 15), pady=2, sticky="ne")
 
             # Try using Canvas to overlay text on image without background
             import tkinter as tk
@@ -1844,19 +2237,21 @@ class CalendarApp(ctk.CTk):
             # Load and draw the icon image on canvas
             try:
                 from PIL import ImageTk
-                icon_pil = Image.open("bell.png").resize((42, 42))
+                icon_pil = Image.open(resource_path(
+                    "bell.png")).resize((42, 42))
                 icon_photo = ImageTk.PhotoImage(icon_pil)
                 canvas.create_image(21, 21, image=icon_photo)
                 # Keep a reference to prevent garbage collection
                 canvas.image = icon_photo
 
-                # Draw text directly on canvas
+                # Draw text with black color (no background circle)
                 canvas.create_text(21, 21, text=str(note_count),
-                                   font=("Arial", 16, "bold"),
+                                   font=("Arial", 14, "bold"),
                                    fill="black")
-            except:
+            except Exception as e:
                 # Fallback to simple colored circle with text
-                canvas.create_oval(5, 5, 37, 37, fill="red", outline="")
+                canvas.create_oval(5, 5, 37, 37, fill="red",
+                                   outline="white", width=2)
                 canvas.create_text(21, 21, text=str(note_count),
                                    font=("Arial", 16, "bold"),
                                    fill="white")
@@ -2021,7 +2416,8 @@ class CalendarApp(ctk.CTk):
                     del self.note_data[year_str][month_name][day_str]
 
         # Save updated data
-        with open('notes.json', 'w') as f:
+        notes_file_path = get_data_file_path('notes.json')
+        with open(notes_file_path, 'w') as f:
             json.dump(self.note_data, f, indent=4)
 
         # Update the month counter
